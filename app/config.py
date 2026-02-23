@@ -14,7 +14,10 @@ class Config:
     WHATSAPP_API_VERSION: str = os.getenv("WHATSAPP_API_VERSION", "v21.0")
 
     # Postgres
-    POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "34.126.81.157")
+    # Cloud SQL: set CLOUD_SQL_CONNECTION_NAME (e.g. project:region:instance) for Unix socket
+    # TCP: set POSTGRES_HOST + POSTGRES_PORT for local dev or public IP
+    CLOUD_SQL_CONNECTION_NAME: str = os.getenv("CLOUD_SQL_CONNECTION_NAME", "speedy-volt-487905-t5:asia-southeast1:sushi-db")
+    POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
     POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", "5432"))
     POSTGRES_USERNAME: str = os.getenv("POSTGRES_USERNAME", "postgres")
     POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "Tomokilam3!")

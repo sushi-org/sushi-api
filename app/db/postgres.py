@@ -19,18 +19,29 @@ logger = logging.getLogger(__name__)
 class PostgresDB(BaseDB):
     def __init__(self) -> None:
         super().__init__()
-        connection_params = {
-            "drivername": "postgresql+asyncpg",
-            "username": Config.POSTGRES_USERNAME,
-            "password": Config.POSTGRES_PASSWORD,
-            "host": Config.POSTGRES_HOST,
-            "port": Config.POSTGRES_PORT,
-            "database": Config.POSTGRES_DB_NAME,
-        }
-        logger.info("Creating DB Engine with host=%s port=%s db=%s",
-                     Config.POSTGRES_HOST, Config.POSTGRES_PORT, Config.POSTGRES_DB_NAME)
-
-        url = sqlalchemy.engine.url.URL.create(**connection_params)
+        if Config.CLOUD_SQL_CONNECTION_NAME:
+            # Unix socket (Cloud Run with --add-cloudsql-instances)
+            socket_path = f"/cloudsql/{Config.CLOUD_SQL_CONNECTION_NAME}"
+            url = sqlalchemy.engine.url.URL.create(
+                drivername="postgresql+asyncpg",
+                username=Config.POSTGRES_USERNAME,
+                password=Config.POSTGRES_PASSWORD,
+                database=Config.POSTGRES_DB_NAME,
+                query={"unix_socket": socket_path},
+            )
+            logger.info("Creating DB Engine with unix_socket=%s db=%s", socket_path, Config.POSTGRES_DB_NAME)
+        else:
+            # TCP (localhost, public IP, etc.)
+            url = sqlalchemy.engine.url.URL.create(
+                drivername="postgresql+asyncpg",
+                username=Config.POSTGRES_USERNAME,
+                password=Config.POSTGRES_PASSWORD,
+                host=Config.POSTGRES_HOST,
+                port=Config.POSTGRES_PORT,
+                database=Config.POSTGRES_DB_NAME,
+            )
+            logger.info("Creating DB Engine with host=%s port=%s db=%s",
+                        Config.POSTGRES_HOST, Config.POSTGRES_PORT, Config.POSTGRES_DB_NAME)
         self._async_engine = create_async_engine(
             url,
             echo=Config.SQL_COMMAND_ECHO,
