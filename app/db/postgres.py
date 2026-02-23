@@ -27,7 +27,7 @@ class PostgresDB(BaseDB):
                 username=Config.POSTGRES_USERNAME,
                 password=Config.POSTGRES_PASSWORD,
                 database=Config.POSTGRES_DB_NAME,
-                query={"unix_socket": socket_path},
+                query={"host": socket_path},
             )
             logger.info("Creating DB Engine with unix_socket=%s db=%s", socket_path, Config.POSTGRES_DB_NAME)
         else:
