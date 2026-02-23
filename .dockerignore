@@ -1,0 +1,24 @@
+# Dependencies (installed in container)
+.venv
+venv
+__pycache__
+
+# Git
+.git
+.gitignore
+
+# Environment (use Cloud Run env vars / Secret Manager)
+.env
+.env.*
+
+# IDE / OS
+.idea
+.vscode
+*.swp
+.DS_Store
+
+# Tests (optional - remove if you want tests in image)
+tests
+*.test.py
+pytest.ini
+coverage.*
