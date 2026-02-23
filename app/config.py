@@ -29,6 +29,6 @@ class Config:
     ADMIN_API_KEY: str = os.getenv("ADMIN_API_KEY", "super-secret-admin-key")
 
     # OpenRouter (LLM)
-    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "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")
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "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")
     OPENROUTER_BASE_URL: str = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     OPENROUTER_DEFAULT_MODEL: str = os.getenv("OPENROUTER_DEFAULT_MODEL", "openai/gpt-4o-mini")
