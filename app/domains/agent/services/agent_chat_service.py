@@ -264,7 +264,8 @@ class AgentChatService:
             parts.append("\nServices offered:")
             for svc in services:
                 price_str = f"${svc.default_price}" if svc.default_price else "N/A"
-                parts.append(f"  - {svc.name} (ID: {svc.id}, {price_str}, {svc.default_duration_minutes}min)")
+                desc = f": {svc.description}" if svc.description else ""
+                parts.append(f"  - {svc.name} (ID: {svc.id}, {price_str}, {svc.default_duration_minutes}min){desc}")
 
         if staff:
             parts.append("\nStaff:")
