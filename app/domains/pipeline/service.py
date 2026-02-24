@@ -73,7 +73,10 @@ class InboundPipelineService:
 
         # 6. Pre-agent guardrails: keyword escalation
         if check_keyword_escalation(inbound.text):
-            await self._escalate_with_message(conversation.id, inbound)
+            await self._escalate_with_message(
+                conversation.id, inbound,
+                reason="Customer requested human assistance (keyword detected)",
+            )
             return
 
         # 7. Invoke agent (or fallback)
@@ -87,10 +90,16 @@ class InboundPipelineService:
                 )
             except Exception:
                 logger.exception("Agent failed for conversation %s", conversation.id)
-                await self._escalate_with_message(conversation.id, inbound)
+                await self._escalate_with_message(
+                    conversation.id, inbound,
+                    reason="Agent failed to process message",
+                )
                 return
         else:
-            await self._escalate_with_message(conversation.id, inbound)
+            await self._escalate_with_message(
+                conversation.id, inbound,
+                reason="No active agent for this branch",
+            )
             return
 
         # 8. Persist agent response
@@ -98,18 +107,22 @@ class InboundPipelineService:
 
         # 9. Handle escalation signal from agent
         if response.escalate:
-            await self.messaging.escalate(conversation.id)
+            await self.messaging.escalate(conversation.id, response.escalation_reason)
 
         # 10. Post-response guardrails: max turns
         agent_count = await self.messaging.count_agent_messages(conversation.id)
         if check_max_turns(agent_count):
             if not response.escalate:
-                await self.messaging.escalate(conversation.id)
+                await self.messaging.escalate(
+                    conversation.id, "Maximum conversation turns exceeded"
+                )
 
         # 11. Deliver reply
         await self._deliver(inbound.branch_id, inbound.channel, inbound.customer_phone, response.text)
 
-    async def _escalate_with_message(self, conversation_id, inbound: InboundMessage) -> None:
+    async def _escalate_with_message(
+        self, conversation_id, inbound: InboundMessage, reason: str | None = None,
+    ) -> None:
         escalation_text = DEFAULT_ESCALATION_MESSAGE
 
         if self.agent is not None:
@@ -121,7 +134,7 @@ class InboundPipelineService:
                 pass
 
         await self.messaging.persist_message(conversation_id, "agent", escalation_text)
-        await self.messaging.escalate(conversation_id)
+        await self.messaging.escalate(conversation_id, reason)
         await self._deliver(inbound.branch_id, inbound.channel, inbound.customer_phone, escalation_text)
 
     async def _acknowledge(self, inbound: InboundMessage) -> None:

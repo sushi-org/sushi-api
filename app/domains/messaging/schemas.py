@@ -47,6 +47,7 @@ class ConversationListItem(BaseModel):
     contact: ContactResponse
     status: ConversationStatus
     escalated_at: datetime | None
+    escalation_reason: str | None = None
     message_count: int
     created_at: datetime
 
@@ -69,6 +70,7 @@ class ConversationDetailResponse(BaseModel):
     contact: ContactResponse
     status: ConversationStatus
     escalated_at: datetime | None
+    escalation_reason: str | None = None
     resolved_at: datetime | None
     messages: list[MessageResponse]
     tool_executions: list[ToolExecutionSummary]

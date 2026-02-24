@@ -42,6 +42,7 @@ async def list_conversations(
                 contact=ContactResponse.model_validate(conv.contact),
                 status=conv.status,
                 escalated_at=conv.escalated_at,
+                escalation_reason=conv.escalation_reason,
                 message_count=msg_count,
                 created_at=conv.created_at,
             )
@@ -63,6 +64,7 @@ async def get_conversation(
         contact=ContactResponse.model_validate(conv.contact),
         status=conv.status,
         escalated_at=conv.escalated_at,
+        escalation_reason=conv.escalation_reason,
         resolved_at=conv.resolved_at,
         messages=[MessageResponse.model_validate(m) for m in conv.messages],
         tool_executions=[],

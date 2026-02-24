@@ -60,12 +60,13 @@ class MessagingService:
         )
         return conversation, True
 
-    async def escalate(self, conversation_id: UUID):
+    async def escalate(self, conversation_id: UUID, reason: str | None = None):
         conv = await self.conversation_repo.get_by_id(conversation_id)
         if conv is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
         conv.status = ConversationStatus.escalated
         conv.escalated_at = datetime.now(timezone.utc)
+        conv.escalation_reason = reason
         await self.conversation_repo.session.flush()
         await self.conversation_repo.session.refresh(conv)
         return conv
@@ -86,6 +87,7 @@ class MessagingService:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
         conv.status = ConversationStatus.active
         conv.escalated_at = None
+        conv.escalation_reason = None
         await self.conversation_repo.session.flush()
         await self.conversation_repo.session.refresh(conv)
         return conv

@@ -259,9 +259,10 @@ CREATE TABLE conversations (
     company_id   UUID                NOT NULL REFERENCES companies (id) ON DELETE CASCADE,
     contact_id   UUID                NOT NULL REFERENCES contacts (id) ON DELETE CASCADE,
     channel      channel_type        NOT NULL,
-    status       conversation_status NOT NULL DEFAULT 'active',
-    escalated_at TIMESTAMPTZ,
-    resolved_at  TIMESTAMPTZ,
+    status            conversation_status NOT NULL DEFAULT 'active',
+    escalated_at      TIMESTAMPTZ,
+    escalation_reason TEXT,
+    resolved_at       TIMESTAMPTZ,
     created_at   TIMESTAMPTZ         NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ         NOT NULL DEFAULT now()
 );

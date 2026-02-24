@@ -59,6 +59,7 @@ class Conversation(TimestampMixin, Base):
         default=ConversationStatus.active,
     )
     escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    escalation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     contact: Mapped[Contact] = relationship(lazy="joined")
