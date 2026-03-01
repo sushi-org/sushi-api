@@ -57,11 +57,6 @@ async def receive_message(
             if not phone_number_id or not messages:
                 continue
 
-            logger.info(
-                "Webhook received: phone_number_id=%s message_count=%d",
-                phone_number_id, len(messages),
-            )
-
             account = await account_repo.get_by_phone_number_id(phone_number_id)
             if account is None or account.status == WhatsAppAccountStatus.disconnected:
                 logger.warning("No active WhatsApp account for phone_number_id %s", phone_number_id)
@@ -78,13 +73,10 @@ async def receive_message(
                 customer_phone = msg.get("from", "")
 
                 if msg_type != "text":
-                    logger.info("Skipping non-text message type=%s id=%s", msg_type, msg_id)
+                    logger.info("Step 1 - msg=%s: Skipped (type=%s)", msg_id, msg_type)
                     continue
 
-                logger.info(
-                    "Processing message id=%s from=%s branch=%s",
-                    msg_id, customer_phone, account.branch_id,
-                )
+                logger.info("Step 1 - msg=%s: Received from %s", msg_id, customer_phone)
 
                 inbound = InboundMessage(
                     branch_id=account.branch_id,
@@ -99,9 +91,6 @@ async def receive_message(
                 try:
                     await pipeline.handle_inbound(inbound)
                 except Exception:
-                    logger.exception(
-                        "Pipeline failed for message id=%s from=%s branch=%s",
-                        msg_id, customer_phone, account.branch_id,
-                    )
+                    logger.exception("Step 2 - msg=%s: Pipeline failed", msg_id)
 
     return {"status": "ok"}

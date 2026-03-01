@@ -23,6 +23,7 @@ async def chat_completion(
     model: str,
     messages: list[dict],
     tools: list[dict] | None = None,
+    msg_id: str = "",
 ) -> ChatCompletion:
     client = _get_client()
     kwargs: dict = {
@@ -33,24 +34,22 @@ async def chat_completion(
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
 
-    logger.info("LLM request: model=%s messages=%d tools=%d", model, len(messages), len(tools) if tools else 0)
+    prefix = f"Step 5 - msg={msg_id}: " if msg_id else ""
+    logger.info("%sLLM request (model=%s messages=%d tools=%d)", prefix, model, len(messages), len(tools) if tools else 0)
     start = time.monotonic()
 
     try:
         response = await client.chat.completions.create(**kwargs)
     except Exception:
         elapsed_ms = int((time.monotonic() - start) * 1000)
-        logger.exception("LLM call failed: model=%s elapsed=%dms", model, elapsed_ms)
+        logger.exception("%sLLM failed model=%s elapsed=%dms", prefix, model, elapsed_ms)
         raise
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
     usage = response.usage
     logger.info(
-        "LLM response: model=%s elapsed=%dms prompt_tokens=%s completion_tokens=%s total_tokens=%s",
-        model, elapsed_ms,
-        usage.prompt_tokens if usage else "?",
-        usage.completion_tokens if usage else "?",
-        usage.total_tokens if usage else "?",
+        "%sLLM response (elapsed=%dms tokens=%s)",
+        prefix, elapsed_ms, usage.total_tokens if usage else "?",
     )
     return response
 

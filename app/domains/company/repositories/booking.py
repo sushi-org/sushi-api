@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.domains.company.models import Booking, BookingStatus
 from app.domains.company.repositories.base import BaseRepository
@@ -106,6 +107,57 @@ class BookingRepository(BaseRepository[Booking]):
                 )
             )
             .order_by(Booking.date, Booking.start_time)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_past_by_phone(self, company_id: UUID, phone: str) -> list[Booking]:
+        """All bookings for a customer across all branches of a company, ordered by date desc.
+
+        Calls auto_complete_past_bookings first so that old confirmed bookings are
+        reflected as completed before computing customer history.
+        """
+        await self.auto_complete_past_bookings(company_id)
+        stmt = (
+            select(Booking)
+            .where(
+                and_(
+                    Booking.company_id == company_id,
+                    Booking.customer_phone == phone,
+                )
+            )
+            .options(
+                selectinload(Booking.service),
+                selectinload(Booking.staff),
+            )
+            .order_by(Booking.date.desc(), Booking.start_time.desc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_by_customer_phone_with_relations(
+        self,
+        branch_id: UUID,
+        customer_phone: str,
+        *,
+        status: BookingStatus | None = BookingStatus.confirmed,
+    ) -> list[Booking]:
+        """Like list_by_customer_phone but with service and staff eager-loaded."""
+        conditions = [
+            Booking.branch_id == branch_id,
+            Booking.customer_phone == customer_phone,
+        ]
+        if status is not None:
+            conditions.append(Booking.status == status)
+
+        stmt = (
+            select(Booking)
+            .where(and_(*conditions))
+            .options(
+                selectinload(Booking.service),
+                selectinload(Booking.staff),
+            )
+            .order_by(Booking.date.desc(), Booking.start_time.desc())
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())

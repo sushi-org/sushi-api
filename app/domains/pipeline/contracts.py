@@ -21,3 +21,12 @@ class OutboundMessage:
     channel: str
     customer_phone: str
     text: str
+
+
+@dataclass
+class AgentResponse:
+    """Returned by any AgentServiceProtocol implementation to the Pipeline."""
+
+    text: str
+    escalate: bool = False
+    escalation_reason: str | None = None

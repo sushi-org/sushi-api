@@ -3,21 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from app.domains.agent.tools.base import BaseTool, ToolContext
-from app.domains.company.repositories.booking import BookingRepository
-from app.domains.company.repositories.service import ServiceRepository
-from app.domains.company.repositories.staff import StaffRepository
+from app.domains.company.services.booking_service import BookingService
 
 
 class ListBookingsTool(BaseTool):
-    def __init__(
-        self,
-        booking_repo: BookingRepository,
-        service_repo: ServiceRepository,
-        staff_repo: StaffRepository,
-    ) -> None:
-        self._booking_repo = booking_repo
-        self._service_repo = service_repo
-        self._staff_repo = staff_repo
+    def __init__(self, booking_service: BookingService) -> None:
+        self._booking_svc = booking_service
 
     @property
     def name(self) -> str:
@@ -43,7 +34,7 @@ class ListBookingsTool(BaseTool):
         if not phone:
             return {"error": "missing_phone", "message": "Unable to identify the customer."}
 
-        bookings = await self._booking_repo.list_by_customer_phone(
+        bookings = await self._booking_svc.list_for_customer(
             branch_id=context.branch_id,
             customer_phone=phone,
         )
@@ -51,14 +42,12 @@ class ListBookingsTool(BaseTool):
         if not bookings:
             return {"bookings": [], "message": "No upcoming bookings found for this customer."}
 
-        results = []
-        for b in bookings:
-            service = await self._service_repo.get_by_id(b.service_id)
-            staff = await self._staff_repo.get_by_id(b.staff_id)
-            results.append({
+        # service and staff are eager-loaded — no N+1
+        return {"bookings": [
+            {
                 "booking_id": str(b.id),
-                "service": service.name if service else "Unknown",
-                "staff": staff.name if staff else "Unknown",
+                "service": b.service.name if b.service else "Unknown",
+                "staff": b.staff.name if b.staff else "Unknown",
                 "date": b.date.isoformat(),
                 "start_time": b.start_time.strftime("%H:%M"),
                 "end_time": b.end_time.strftime("%H:%M"),
@@ -66,6 +55,6 @@ class ListBookingsTool(BaseTool):
                 "price": float(b.price),
                 "currency": b.currency,
                 "status": b.status.value,
-            })
-
-        return {"bookings": results}
+            }
+            for b in bookings
+        ]}

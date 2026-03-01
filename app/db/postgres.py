@@ -49,6 +49,7 @@ class PostgresDB(BaseDB):
             max_overflow=5,
             pool_timeout=30,
             pool_recycle=1800,
+            pool_pre_ping=True,
         )
 
     def create_session_factory(self) -> async_sessionmaker[AsyncSession]:
