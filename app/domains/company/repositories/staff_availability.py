@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.company.models import StaffAvailability
+from app.domains.company.models import Staff, StaffAvailability, StaffService
 from app.domains.company.repositories.base import BaseRepository
 
 
@@ -35,6 +35,37 @@ class StaffAvailabilityRepository(BaseRepository[StaffAvailability]):
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def list_staff_schedule_context(
+        self,
+        staff_ids: list[UUID] | None,
+        service_id: UUID,
+        branch_id: UUID,
+    ) -> list:
+        """
+        One row per availability window for each staff member who is assigned to the
+        given service and has availability windows at this branch.
+
+        Pass staff_ids=None to fetch all staff assigned to the service.
+        Pass staff_ids=[] to return nothing (explicit empty).
+        Returns list of Row(StaffService, StaffAvailability, staff_name).
+        """
+        conditions = [
+            StaffService.service_id == service_id,
+            StaffAvailability.branch_id == branch_id,
+        ]
+        if staff_ids is not None:
+            if not staff_ids:
+                return []
+            conditions.append(StaffService.staff_id.in_(staff_ids))
+        stmt = (
+            select(StaffService, StaffAvailability, Staff.name)
+            .join(StaffAvailability, StaffAvailability.staff_id == StaffService.staff_id)
+            .join(Staff, Staff.id == StaffService.staff_id)
+            .where(and_(*conditions))
+        )
+        result = await self.session.execute(stmt)
+        return result.all()
 
     async def replace_for_staff_branch(
         self, staff_id: UUID, branch_id: UUID, slots: list[dict]

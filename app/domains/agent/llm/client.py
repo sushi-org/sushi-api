@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
@@ -32,7 +33,25 @@ async def chat_completion(
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
 
-    response = await client.chat.completions.create(**kwargs)
+    logger.info("LLM request: model=%s messages=%d tools=%d", model, len(messages), len(tools) if tools else 0)
+    start = time.monotonic()
+
+    try:
+        response = await client.chat.completions.create(**kwargs)
+    except Exception:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        logger.exception("LLM call failed: model=%s elapsed=%dms", model, elapsed_ms)
+        raise
+
+    elapsed_ms = int((time.monotonic() - start) * 1000)
+    usage = response.usage
+    logger.info(
+        "LLM response: model=%s elapsed=%dms prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+        model, elapsed_ms,
+        usage.prompt_tokens if usage else "?",
+        usage.completion_tokens if usage else "?",
+        usage.total_tokens if usage else "?",
+    )
     return response
 
 

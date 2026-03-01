@@ -72,8 +72,14 @@ class AgentChatService:
         customer_phone: str = "",
         customer_name: str | None = None,
     ) -> AgentResponse:
+        logger.info("AgentChatService.process start: conversation=%s branch=%s", conversation_id, branch_id)
+
         agent = await self.agent_repo.get_by_branch_id(branch_id)
         if agent is None or agent.status == AgentStatus.paused:
+            logger.warning(
+                "No active agent for branch %s (agent=%s) — escalating",
+                branch_id, "paused" if agent else "missing",
+            )
             return AgentResponse(
                 text=await self.resolve_template(None, "escalation"),
                 escalate=True,
@@ -91,9 +97,19 @@ class AgentChatService:
         staff_list = await self.staff_repo.list_by(company_id=agent.company_id)
         active_staff = [s for s in staff_list if s.status.value == "active"]
 
-        system_prompt = self._build_system_prompt(
-            agent, knowledge_entries, templates, company, branch, active_services, active_staff
+        logger.info(
+            "Agent context loaded: agent=%s company=%s branch=%s services=%d staff=%d history=%d",
+            agent.id, agent.company_id, branch_id,
+            len(active_services), len(active_staff), len(recent_messages),
         )
+
+        try:
+            system_prompt = self._build_system_prompt(
+                agent, knowledge_entries, templates, company, branch, active_services, active_staff
+            )
+        except Exception:
+            logger.exception("Failed to build system prompt for agent %s branch %s", agent.id, branch_id)
+            raise
 
         messages = [{"role": "system", "content": system_prompt}]
         for msg in recent_messages:
@@ -114,13 +130,20 @@ class AgentChatService:
         escalate = False
         escalation_reason = None
 
-        for _ in range(MAX_TOOL_ROUNDS):
+        for round_num in range(MAX_TOOL_ROUNDS):
             model = agent.model or Config.OPENROUTER_DEFAULT_MODEL
+            logger.info("LLM round %d for conversation %s (model=%s)", round_num + 1, conversation_id, model)
             response = await chat_completion(model, messages, tool_schemas)
 
             tool_calls = parse_tool_calls(response)
             if not tool_calls:
+                logger.info("No tool calls in round %d — finalising response", round_num + 1)
                 break
+
+            logger.info(
+                "Round %d returned %d tool call(s): %s",
+                round_num + 1, len(tool_calls), [tc["name"] for tc in tool_calls],
+            )
 
             assistant_msg = response.choices[0].message
             messages.append({
@@ -139,6 +162,7 @@ class AgentChatService:
             for tc in tool_calls:
                 tool = tools_map.get(tc["name"])
                 if tool is None:
+                    logger.warning("Unknown tool requested: %s", tc["name"])
                     tool_result = {"error": f"Unknown tool: {tc['name']}"}
                 else:
                     start_ms = time.monotonic()
@@ -146,10 +170,15 @@ class AgentChatService:
                         tool_result = await tool.execute(tc["arguments"], tool_context)
                         exec_status = "success"
                     except Exception as exc:
-                        logger.exception("Tool %s failed", tc["name"])
+                        logger.exception("Tool %s failed for conversation %s", tc["name"], conversation_id)
                         tool_result = {"error": str(exc)}
                         exec_status = "failure"
                     duration_ms = int((time.monotonic() - start_ms) * 1000)
+
+                    logger.info(
+                        "Tool %s %s in %dms for conversation %s",
+                        tc["name"], exec_status, duration_ms, conversation_id,
+                    )
 
                     await self.tool_execution_repo.create(
                         conversation_id=conversation_id,
@@ -172,10 +201,15 @@ class AgentChatService:
 
         text = get_response_text(response)
         if not text:
+            logger.warning("Agent returned empty response for conversation %s — escalating", conversation_id)
             text = await self.resolve_template(agent.id, "escalation")
             escalate = True
             escalation_reason = "Agent returned empty response"
 
+        logger.info(
+            "AgentChatService.process done: conversation=%s escalate=%s response_len=%d",
+            conversation_id, escalate, len(text),
+        )
         return AgentResponse(text=text, escalate=escalate, escalation_reason=escalation_reason)
 
     async def resolve_template(self, agent_id: UUID | None, trigger: str) -> str:
@@ -198,8 +232,9 @@ class AgentChatService:
 
         if enabled.get("check_availability"):
             tools["check_availability"] = CheckAvailabilityTool(
-                self.service_repo, self.staff_repo, self.staff_service_repo,
-                self.staff_availability_repo, self.booking_repo,
+                self.service_repo,
+                self.staff_availability_repo,
+                self.booking_repo,
             )
         if enabled.get("book_appointment"):
             tools["book_appointment"] = BookAppointmentTool(

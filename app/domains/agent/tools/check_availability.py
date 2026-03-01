@@ -7,23 +7,17 @@ from uuid import UUID
 from app.domains.agent.tools.base import BaseTool, ToolContext
 from app.domains.company.repositories.booking import BookingRepository
 from app.domains.company.repositories.service import ServiceRepository
-from app.domains.company.repositories.staff import StaffRepository
 from app.domains.company.repositories.staff_availability import StaffAvailabilityRepository
-from app.domains.company.repositories.staff_service import StaffServiceRepository
 
 
 class CheckAvailabilityTool(BaseTool):
     def __init__(
         self,
         service_repo: ServiceRepository,
-        staff_repo: StaffRepository,
-        staff_service_repo: StaffServiceRepository,
         staff_availability_repo: StaffAvailabilityRepository,
         booking_repo: BookingRepository,
     ) -> None:
         self._service_repo = service_repo
-        self._staff_repo = staff_repo
-        self._staff_service_repo = staff_service_repo
         self._availability_repo = staff_availability_repo
         self._booking_repo = booking_repo
 
@@ -58,64 +52,80 @@ class CheckAvailabilityTool(BaseTool):
         if service is None:
             return {"error": "service_not_found", "message": "Service not found"}
 
-        # Resolve candidate staff
-        if staff_id:
-            candidates = [staff_id]
-        else:
-            staff_services = await self._staff_service_repo.list_by(service_id=service_id)
-            candidates = [ss.staff_id for ss in staff_services]
+        # Resolve candidates: specific staff or None (let the JOIN filter by service_id)
+        candidates = [staff_id] if staff_id else None
 
-        if not candidates:
-            return {"slots": [], "message": "No staff assigned to this service"}
+        # Query 1: JOIN staff_services + staff_availabilities + staff
+        rows = await self._availability_repo.list_staff_schedule_context(
+            candidates, service_id, context.branch_id
+        )
+        if not rows:
+            return {"availability": [], "message": "No staff assigned to this service"}
 
-        slots: list[dict] = []
+        # Build lookup structures from rows
+        avail_map: dict[UUID, dict[int, list[tuple[_dt.time, _dt.time]]]] = {}
+        staff_svc_map: dict[UUID, Any] = {}
+        staff_name_map: dict[UUID, str] = {}
+
+        for staff_svc, avail_window, staff_name in rows:
+            sid = staff_svc.staff_id
+            staff_svc_map[sid] = staff_svc
+            staff_name_map[sid] = staff_name
+            avail_map.setdefault(sid, {}).setdefault(avail_window.day_of_week, []).append(
+                (avail_window.start_time, avail_window.end_time)
+            )
+
+        valid_candidates = list(staff_svc_map.keys())
+
+        # Query 2: all bookings for all valid staff across the full date range
+        all_bookings = await self._booking_repo.list_by_staff_ids_date_range(
+            valid_candidates, context.branch_id, date_from, date_to
+        )
+        booked_map: dict[tuple[UUID, _dt.date], list[tuple[_dt.time, _dt.time]]] = {}
+        for b in all_bookings:
+            booked_map.setdefault((b.staff_id, b.date), []).append((b.start_time, b.end_time))
+
+        # Pure in-memory free-window collection (compressed, not per-slot)
+        result_by_date: dict[str, list[dict]] = {}
         current_date = date_from
         while current_date <= date_to:
             day_of_week = current_date.weekday()
-
-            for sid in candidates:
-                staff_svc = await self._staff_service_repo.get_by_staff_and_service(sid, service_id)
-                if staff_svc is None:
-                    continue
-
+            date_str = current_date.isoformat()
+            staff_avail = []
+            for sid in valid_candidates:
+                staff_svc = staff_svc_map[sid]
                 duration = staff_svc.duration_override or service.default_duration_minutes
-
-                windows = await self._availability_repo.list_by_staff_branch_day(
-                    sid, context.branch_id, day_of_week
-                )
-                if not windows:
-                    continue
-
-                bookings = await self._booking_repo.list_by_staff_date_range(
-                    sid, context.branch_id, current_date, current_date
-                )
-                booked_ranges = [(b.start_time, b.end_time) for b in bookings]
-
-                staff_obj = await self._staff_repo.get_by_id(sid)
-                staff_name = staff_obj.name if staff_obj else "Unknown"
-
-                for window in windows:
-                    free_ranges = _subtract_bookings(window.start_time, window.end_time, booked_ranges)
-                    for free_start, free_end in free_ranges:
-                        slot_start = free_start
-                        while True:
-                            slot_end_dt = _dt.datetime.combine(_dt.date.today(), slot_start) + _dt.timedelta(minutes=duration)
-                            slot_end = slot_end_dt.time()
-                            if slot_end > free_end:
-                                break
-                            slots.append({
-                                "date": current_date.isoformat(),
-                                "staff_id": str(sid),
-                                "staff_name": staff_name,
-                                "start": slot_start.strftime("%H:%M"),
-                                "end": slot_end.strftime("%H:%M"),
-                            })
-                            # Slide by 30-minute increments
-                            slot_start = (_dt.datetime.combine(_dt.date.today(), slot_start) + _dt.timedelta(minutes=30)).time()
-
+                windows = avail_map.get(sid, {}).get(day_of_week, [])
+                booked_ranges = booked_map.get((sid, current_date), [])
+                free_windows = []
+                for window_start, window_end in windows:
+                    for free_start, free_end in _subtract_bookings(window_start, window_end, booked_ranges):
+                        window_minutes = (
+                            _dt.datetime.combine(_dt.date.min, free_end)
+                            - _dt.datetime.combine(_dt.date.min, free_start)
+                        ).seconds // 60
+                        if window_minutes >= duration:
+                            free_windows.append(
+                                f"{free_start.strftime('%H:%M')}-{free_end.strftime('%H:%M')}"
+                            )
+                if free_windows:
+                    staff_avail.append({
+                        "staff_id": str(sid),
+                        "staff_name": staff_name_map.get(sid, "Unknown"),
+                        "windows": free_windows,
+                    })
+            if staff_avail:
+                result_by_date[date_str] = staff_avail
             current_date += _dt.timedelta(days=1)
 
-        return {"slots": slots}
+        return {
+            "service": service.name,
+            "duration_minutes": service.default_duration_minutes,
+            "availability": [
+                {"date": date, "staff": staff}
+                for date, staff in result_by_date.items()
+            ],
+        }
 
 
 def _subtract_bookings(

@@ -109,3 +109,25 @@ class BookingRepository(BaseRepository[Booking]):
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def list_by_staff_ids_date_range(
+        self,
+        staff_ids: list[UUID],
+        branch_id: UUID,
+        date_from: datetime.date,
+        date_to: datetime.date,
+    ) -> list[Booking]:
+        """All confirmed bookings for multiple staff members at a branch within a date range."""
+        if not staff_ids:
+            return []
+        stmt = select(Booking).where(
+            and_(
+                Booking.staff_id.in_(staff_ids),
+                Booking.branch_id == branch_id,
+                Booking.status == BookingStatus.confirmed,
+                Booking.date >= date_from,
+                Booking.date <= date_to,
+            )
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
